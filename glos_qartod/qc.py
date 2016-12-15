@@ -252,7 +252,7 @@ class DatasetQC(object):
         # If the config units are empty, do not attempt to convert units
         # The latter is necessary as some of the NetCDF files do not have
         # units attribute under the udunits variable definitions
-        if not units or np.isnan(config.units):
+        if not units or pd.isnull(config.units):
             units = '1'
             values = values_initial
         # must be a CF unit or this will throw an exception
