@@ -31,6 +31,7 @@ def main():
     if args.verbose:
         setup_logging()
     for nc_path in args.netcdf_files:
+        print(nc_path)
         with Dataset(nc_path, 'r+') as nc:
             run_qc(args.config, nc)
     sys.exit(0)

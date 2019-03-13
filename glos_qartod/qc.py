@@ -13,6 +13,7 @@ from ioos_qartod.qc_tests import qc
 from ioos_qartod.qc_tests import gliders as gliders_qc
 from glos_qartod import get_logger
 
+thermistor = 'Thermistor_String'
 
 class DatasetQC(object):
     def __init__(self, ncfile, config_file):
@@ -26,6 +27,8 @@ class DatasetQC(object):
         '''
         variables = []
         station_name = self.find_station_name()
+        if isinstance(station_name, np.ndarray):
+            station_name=str(station_name)
         station_id = station_name.split(':')[-1]
         get_logger().info("Station ID: %s", station_id)
         local_config = self.config[self.config['station_id'].astype(str) == station_id]
@@ -36,18 +39,35 @@ class DatasetQC(object):
         config_all = pd.concat([local_config, univ_config])
 
         configured_variables = config_all.variable.tolist()
+        self.configure_thermistor_vars(configured_variables)
         get_logger().info("Configured variables: %s", ', '.join(configured_variables))
         return set(configured_variables).intersection(self.ncfile.variables)
+
+    def configure_thermistor_vars(self,configured_vars):
+        # Deal with the Theromster string variables
+        for c_var in configured_vars:
+            if thermistor in c_var:
+                for n_var in self.ncfile.variables:
+                    if thermistor in n_var:
+                        configured_vars.append(n_var)
+                break
 
     def find_station_name(self):
         '''
         Returns the station identifier using the ioos_code attribute
         '''
-        platform_name = self.ncfile.platform
-        if platform_name not in self.ncfile.variables:
-            raise ValueError("Platform defined as %s but no variable matches this name" % platform_name)
-        station_id = self.ncfile.variables[platform_name].ioos_code
+        if hasattr(self.ncfile, 'platform'):
+            platform_name = self.ncfile.platform
+            if platform_name not in self.ncfile.variables:
+                raise ValueError("Platform defined as %s but no variable matches this name" % platform_name)
+            station_id = self.ncfile.variables[platform_name].ioos_code
+        else:
+            station_id = self.ncfile.variables['station_name'][:]
+            if isinstance(station_id,np.ndarray):
+                station_id = str(station_id)
         return station_id
+
+
 
     def find_ancillary_variables(self, ncvariable):
         '''
@@ -185,6 +205,10 @@ class DatasetQC(object):
         '''
         Returns a dataframe loaded from the excel config file.
         '''
+        # hack to bulk process
+        if isinstance(path, pd.DataFrame):
+            self.config = path
+            return path
         get_logger().info("Loading config %s", path)
         df = pd.read_excel(path)
         self.config = df
@@ -228,6 +252,9 @@ class DatasetQC(object):
 
         times, values, mask = self.get_unmasked(parent)
 
+        if qartod_test == 'spike' and len(values) <3:
+            ncvariable[~mask] =  2
+            return
         if qartod_test in ('rate_of_change', 'spike'):
             times = ma.getdata(times[~mask])
             if times.size > 0:
@@ -258,7 +285,13 @@ class DatasetQC(object):
         get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
         get_logger().info("Total Values: %s", len(values))
         # write any flags to non-missing data
-        ncvariable[~mask] = qc_flags[~mask]
+        #print  qartod_test 
+        #print len(ncvariable)
+        #print ncvariable.name
+        #print len(qc_flags)
+        #print np.count_nonzero(~mask)
+        #print len(mask)
+        ncvariable[~mask] = qc_flags
 
     def get_unmasked(self, ncvariable):
         times = self.ncfile.variables['time'][:]
@@ -290,6 +323,8 @@ class DatasetQC(object):
                 exc_text = "Caught exception while converting units: {}".format(e)
                 get_logger().warn(exc_text)
                 values = values_initial
+        else:
+            values = values_initial
         return times, values, mask
 
     def get_gross_range_config(self, config):
@@ -393,21 +428,31 @@ class DatasetQC(object):
 
         :param netCDF4.Variable ncvariable: NCVariable
         '''
+        nc_varname = variable
+        if thermistor in variable:
+            nc_varname = thermistor
+            
         station_name = self.find_station_name()
+        
         station_id = station_name.split(':')[-1]
+        # find any station specific as well as station-wide ('*') config rows
         rows = self.config[(self.config['station_id'].astype(str) == station_id) &
-                           (self.config['variable'] == variable) |
+                           (self.config['variable'] == nc_varname) |
                            (self.config['station_id'].astype(str) == '*') &
-                           (self.config['variable'] == variable)]
+                           (self.config['variable'] == nc_varname)]
         # prefer station specific variable configuration to generalized variable
-        # configuration, if it is available
+        # configuration, if it is available.  '*' sorts before alphanumericals,
+        # so use reverse sorting order for the station id so that individual
+        # stations get chosen first
         dedup = rows.sort_values(['variable', 'station_id'], ascending=[True,
                                          False]).drop_duplicates('variable')
         dedup['station_id'] = station_id
         if len(dedup) > 0:
-            return dedup.iloc[-1]
+            return dedup.iloc[-1]    
         raise KeyError("No configuration found for %s and %s" % (station_id,
                                                                  variable))
+
+
 
     def apply_primary_qc(self, ncvariable):
         '''
