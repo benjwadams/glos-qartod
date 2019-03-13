@@ -255,7 +255,7 @@ class DatasetQC(object):
         if qartod_test == 'spike' and len(values) <3:
             ncvariable[~mask] =  2
             return
-        if qartod_test in ('rate_of_change', 'spike'):
+        if qartod_test == 'rate_of_change':
             times = ma.getdata(times[~mask])
             if times.size > 0:
                dates = np.array(num2date(times,
@@ -285,7 +285,7 @@ class DatasetQC(object):
         get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
         get_logger().info("Total Values: %s", len(values))
         # write any flags to non-missing data
-        #print  qartod_test 
+        #print  qartod_test
         #print len(ncvariable)
         #print ncvariable.name
         #print len(qc_flags)
@@ -431,9 +431,9 @@ class DatasetQC(object):
         nc_varname = variable
         if thermistor in variable:
             nc_varname = thermistor
-            
+
         station_name = self.find_station_name()
-        
+
         station_id = station_name.split(':')[-1]
         # find any station specific as well as station-wide ('*') config rows
         rows = self.config[(self.config['station_id'].astype(str) == station_id) &
@@ -448,7 +448,7 @@ class DatasetQC(object):
                                          False]).drop_duplicates('variable')
         dedup['station_id'] = station_id
         if len(dedup) > 0:
-            return dedup.iloc[-1]    
+            return dedup.iloc[-1]
         raise KeyError("No configuration found for %s and %s" % (station_id,
                                                                  variable))
 
